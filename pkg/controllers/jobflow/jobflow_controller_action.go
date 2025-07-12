@@ -29,6 +29,9 @@ import (
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"encoding/json"
+	strategicpatch "k8s.io/apimachinery/pkg/util/strategicpatch"
+
 	"volcano.sh/apis/pkg/apis/batch/v1alpha1"
 	v1alpha1flow "volcano.sh/apis/pkg/apis/flow/v1alpha1"
 	"volcano.sh/apis/pkg/client/clientset/versioned/scheme"
@@ -126,7 +129,7 @@ func (jf *jobflowcontroller) judge(jobFlow *v1alpha1flow.JobFlow, flow v1alpha1f
 // createJob
 func (jf *jobflowcontroller) createJob(jobFlow *v1alpha1flow.JobFlow, flow v1alpha1flow.Flow) error {
 	job := new(v1alpha1.Job)
-	if err := jf.loadJobTemplateAndSetJob(jobFlow, flow.Name, getJobName(jobFlow.Name, flow.Name), job); err != nil {
+	if err := jf.loadJobTemplateAndSetJob(jobFlow, flow, getJobName(jobFlow.Name, flow.Name), job); err != nil {
 		return err
 	}
 	if _, err := jf.vcClient.BatchV1alpha1().Jobs(jobFlow.Namespace).Create(context.Background(), job, metav1.CreateOptions{}); err != nil {
@@ -251,11 +254,21 @@ func getRunningHistories(jobStatusList []v1alpha1flow.JobStatus, job *v1alpha1.J
 	return runningHistories
 }
 
-func (jf *jobflowcontroller) loadJobTemplateAndSetJob(jobFlow *v1alpha1flow.JobFlow, flowName string, jobName string, job *v1alpha1.Job) error {
+func (jf *jobflowcontroller) loadJobTemplateAndSetJob(jobFlow *v1alpha1flow.JobFlow, flow v1alpha1flow.Flow, jobName string, job *v1alpha1.Job) error {
 	// load jobTemplate
+	flowName := flow.Name
 	jobTemplate, err := jf.jobTemplateLister.JobTemplates(jobFlow.Namespace).Get(flowName)
 	if err != nil {
 		return err
+	}
+	if flow.Patch != nil {
+		baseSpec := jobTemplate.Spec.DeepCopy()
+		patchSpec := flow.Patch.DeepCopy()
+		patchedJobSpec, err := jf.patchJobTemplate(baseSpec, patchSpec)
+		if err != nil {
+			return err
+		}
+		jobTemplate.Spec = *patchedJobSpec
 	}
 
 	*job = v1alpha1.Job{
@@ -276,6 +289,16 @@ func (jf *jobflowcontroller) loadJobTemplateAndSetJob(jobFlow *v1alpha1flow.JobF
 	}
 
 	return controllerutil.SetControllerReference(jobFlow, job, scheme.Scheme)
+}
+
+func (jf *jobflowcontroller) patchJobTemplate(baseSpec *v1alpha1.JobSpec, patchSpec *v1alpha1flow.Patch) (*v1alpha1.JobSpec, error) {
+	merged := baseSpec.DeepCopy()
+	if patchSpec == nil {
+		return merged, nil
+	}
+	// apply job level patches
+
+	return merged, nil
 }
 
 func (jf *jobflowcontroller) deleteAllJobsCreatedByJobFlow(jobFlow *v1alpha1flow.JobFlow) error {
