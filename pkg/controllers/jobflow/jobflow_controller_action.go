@@ -29,9 +29,6 @@ import (
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"encoding/json"
-	strategicpatch "k8s.io/apimachinery/pkg/util/strategicpatch"
-
 	"volcano.sh/apis/pkg/apis/batch/v1alpha1"
 	v1alpha1flow "volcano.sh/apis/pkg/apis/flow/v1alpha1"
 	"volcano.sh/apis/pkg/client/clientset/versioned/scheme"
